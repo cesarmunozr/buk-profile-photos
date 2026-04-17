@@ -1,16 +1,35 @@
 #!/usr/bin/env python3
 """
-photos.py — Pipeline de procesamiento de fotos.
+photos.py — Pipeline de procesamiento de fotos de perfil.
 
-Comandos:
+Comandos individuales:
   convert      Convierte HEIC/HEIF/JPEG/JPG a PNG.
   face-crop    Recorta 1:1 centrado en la cara detectada.
   bg-change    Elimina el fondo y lo reemplaza con un color sólido.
   circle-crop  Aplica máscara circular (RGBA, esquinas transparentes).
-  pipeline     Ejecuta convert → face-crop → bg-change en secuencia.
+  pipeline     Ejecuta convert → face-crop → bg-change → circle-crop.
 
 El directorio de salida se genera automáticamente:
   <directorio_entrada>_YYYYMMDD_HHMMSS/
+
+Ejemplos:
+  # 1. Solo convertir HEIC/JPG a PNG
+  python photos.py convert --input ./fotos
+
+  # 2. Buscar cara y recortar (requiere PNGs)
+  python photos.py face-crop --input ./fotos_20240101_120000
+  python photos.py face-crop --input ./fotos_20240101_120000 --padding 3.0 --size 800
+
+  # 3. Borrar fondo y poner color sólido (requiere PNGs)
+  python photos.py bg-change --input ./fotos_20240101_120000
+  python photos.py bg-change --input ./fotos_20240101_120000 --bg-color "#FFFFFF"
+
+  # 4. Recortar en círculo (requiere PNGs)
+  python photos.py circle-crop --input ./fotos_20240101_120000
+
+  # 5. Pipeline completo: convierte → recorta cara → cambia fondo → círculo
+  python photos.py pipeline --input ./fotos
+  python photos.py pipeline --input ./fotos --bg-color "#FFFFFF" --size 800
 """
 
 import sys
@@ -198,7 +217,7 @@ def _apply_circle_mask(img: Image.Image) -> Image.Image:
     return result
 
 
-def _bg_change(input_dir: Path, output_dir: Path, bg_color_hex: str, circle: bool = False) -> None:
+def _bg_change(input_dir: Path, output_dir: Path, bg_color_hex: str) -> None:
     from rembg import new_session, remove
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -212,8 +231,6 @@ def _bg_change(input_dir: Path, output_dir: Path, bg_color_hex: str, circle: boo
     print(f"  Cargando rembg (isnet-general-use)...")
     session = new_session("isnet-general-use")
     print(f"  Fondo: #{bg_color_hex.lstrip('#').upper()}  RGB{bg_color}")
-    if circle:
-        print("  Forma: circular (esquinas transparentes)")
     print(f"\n  Procesando {len(files)} imágenes → {output_dir}\n")
 
     ok = failed = 0
@@ -224,8 +241,7 @@ def _bg_change(input_dir: Path, output_dir: Path, bg_color_hex: str, circle: boo
             rgba = remove(img, session=session)
             background = Image.new("RGB", rgba.size, bg_color)
             background.paste(rgba, mask=rgba.split()[3])
-            result = _apply_circle_mask(background) if circle else background
-            result.save(dst, format="PNG", optimize=True)
+            background.save(dst, format="PNG", optimize=True)
             print(f"  OK   {src.name}")
             ok += 1
         except Exception as e:
@@ -235,18 +251,15 @@ def _bg_change(input_dir: Path, output_dir: Path, bg_color_hex: str, circle: boo
     print(f"\n  Listo: {ok} procesadas | {failed} errores")
 
 
-def cmd_circle_crop(args: argparse.Namespace) -> None:
-    input_dir = Path(args.input).resolve()
-    output_dir = make_output_dir(input_dir)
+def _circle_crop(input_dir: Path, output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     files = sorted(input_dir.glob("*.png"))
     if not files:
-        print(f"No se encontraron imágenes PNG en {input_dir}")
+        print(f"  No se encontraron imágenes PNG en {input_dir}")
         return
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"\nRecorte circular: {input_dir}")
-    print(f"Salida:           {output_dir}\n")
+    print(f"  Procesando {len(files)} imágenes → {output_dir}\n")
 
     ok = failed = 0
     for src in files:
@@ -262,6 +275,15 @@ def cmd_circle_crop(args: argparse.Namespace) -> None:
             failed += 1
 
     print(f"\n  Listo: {ok} procesadas | {failed} errores")
+
+
+def cmd_circle_crop(args: argparse.Namespace) -> None:
+    input_dir = Path(args.input).resolve()
+    output_dir = make_output_dir(input_dir)
+
+    print(f"\nRecorte circular: {input_dir}")
+    print(f"Salida:           {output_dir}\n")
+    _circle_crop(input_dir, output_dir)
     print(f"\nSalida: {output_dir}")
 
 
@@ -271,7 +293,7 @@ def cmd_bg_change(args: argparse.Namespace) -> None:
 
     print(f"\nCambiando fondo: {input_dir}")
     print(f"Salida:          {output_dir}\n")
-    _bg_change(input_dir, output_dir, args.bg_color, circle=args.circle)
+    _bg_change(input_dir, output_dir, args.bg_color)
     print(f"\nSalida: {output_dir}")
 
 
@@ -282,26 +304,33 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
     output_dir = make_output_dir(input_dir)
     converted_dir = output_dir / "_converted"
     cropped_dir = output_dir / "_cropped"
+    bg_dir = output_dir / "_bg"
 
-    print(f"\nPipeline: {input_dir}")
-    print(f"Salida:   {output_dir}\n")
+    print(f"\nPipeline completo: {input_dir}")
+    print(f"Salida:            {output_dir}\n")
 
     print("=" * 60)
-    print(" Paso 1/3 — Conversión a PNG")
+    print(" Paso 1/4 — Conversión a PNG")
     print("=" * 60)
     _convert(input_dir, converted_dir)
 
     print()
     print("=" * 60)
-    print(" Paso 2/3 — Recorte por cara")
+    print(" Paso 2/4 — Recorte por cara")
     print("=" * 60)
     _face_crop(converted_dir, cropped_dir, args)
 
     print()
     print("=" * 60)
-    print(" Paso 3/3 — Cambio de fondo")
+    print(" Paso 3/4 — Cambio de fondo")
     print("=" * 60)
-    _bg_change(cropped_dir, output_dir, args.bg_color, circle=args.circle)
+    _bg_change(cropped_dir, bg_dir, args.bg_color)
+
+    print()
+    print("=" * 60)
+    print(" Paso 4/4 — Recorte circular")
+    print("=" * 60)
+    _circle_crop(bg_dir, output_dir)
 
     print(f"\nSalida final: {output_dir}")
 
@@ -361,26 +390,19 @@ def main() -> None:
         default="#ECECEC",
         help="Color de fondo en hex (default: #ECECEC)",
     )
-    p_bg.add_argument(
-        "--circle",
-        action="store_true",
-        help="Recortar en forma circular (esquinas transparentes, RGBA)",
-    )
     p_bg.set_defaults(func=cmd_bg_change)
 
     # ── pipeline ──
-    p_pipe = sub.add_parser("pipeline", help="Ejecuta convert → face-crop → bg-change en secuencia")
+    p_pipe = sub.add_parser(
+        "pipeline",
+        help="Pipeline completo: convert → face-crop → bg-change → circle-crop",
+    )
     p_pipe.add_argument("--input", required=True, metavar="DIR", help="Directorio de entrada")
     p_pipe.add_argument(
         "--bg-color",
         type=str,
         default="#ECECEC",
         help="Color de fondo en hex (default: #ECECEC)",
-    )
-    p_pipe.add_argument(
-        "--circle",
-        action="store_true",
-        help="Recortar en forma circular (esquinas transparentes, RGBA)",
     )
     _add_crop_args(p_pipe)
     p_pipe.set_defaults(func=cmd_pipeline)
