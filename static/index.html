@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Profile Photo Processor</title>
   <link href="https://cdn.jsdelivr.net/npm/flowbite@2.3.0/dist/flowbite.min.css" rel="stylesheet" />
+  <style>
+    #log-panel::-webkit-scrollbar { width: 4px; }
+    #log-panel::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+  </style>
 </head>
 <body class="bg-gray-50 min-h-screen flex items-center justify-center p-6">
 
@@ -38,7 +42,7 @@
         <select id="action" name="action"
           class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
           <option value="convert">Solo convertir a PNG</option>
-          <option value="face-crop">Centrar cara (face-crop)</option>
+          <option value="face-crop">Centrar cara</option>
           <option value="bg-change">Eliminar fondo y poner color sólido</option>
           <option value="circle-crop">Recorte circular</option>
           <option value="pipeline" selected>Pipeline completo</option>
@@ -63,7 +67,7 @@
           <label class="block mb-1 text-sm font-medium text-gray-700">Si no detecta cara</label>
           <select id="fallback" name="fallback"
             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5">
-            <option value="center">Crop central</option>
+            <option value="center">Recorte central</option>
             <option value="skip">Omitir foto</option>
           </select>
         </div>
@@ -87,16 +91,21 @@
         Procesar fotografías
       </button>
 
-      <!-- Estado -->
-      <div id="status" class="hidden">
-        <div id="processing-state" class="hidden flex items-center gap-3 text-sm text-gray-600">
-          <svg class="animate-spin w-5 h-5 text-blue-600 shrink-0" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-          </svg>
-          <span>Procesando... esto puede tardar unos minutos según la cantidad de fotografías.</span>
+      <!-- Panel de progreso -->
+      <div id="progress-panel" class="hidden space-y-2">
+        <div class="flex items-center justify-between">
+          <p class="text-sm font-medium text-gray-700">Progreso</p>
+          <div id="progress-spinner" class="hidden">
+            <svg class="animate-spin w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+            </svg>
+          </div>
         </div>
-        <div id="error-state" class="hidden p-4 text-sm text-red-800 rounded-lg bg-red-50">
+        <div id="log-panel"
+          class="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-1 max-h-52 overflow-y-auto text-sm font-mono">
+        </div>
+        <div id="error-state" class="hidden p-3 text-sm text-red-800 rounded-lg bg-red-50">
           <span id="error-msg"></span>
         </div>
       </div>
@@ -106,21 +115,22 @@
 
   <script src="https://cdn.jsdelivr.net/npm/flowbite@2.3.0/dist/flowbite.min.js"></script>
   <script>
-    const fileInput = document.getElementById('file-input');
-    const dropZone = document.getElementById('drop-zone');
-    const dropLabel = document.getElementById('drop-label');
-    const fileList = document.getElementById('file-list');
+    const fileInput   = document.getElementById('file-input');
+    const dropZone    = document.getElementById('drop-zone');
+    const dropLabel   = document.getElementById('drop-label');
+    const fileList    = document.getElementById('file-list');
     const actionSelect = document.getElementById('action');
-    const faceParams = document.getElementById('face-params');
-    const bgParams = document.getElementById('bg-params');
-    const form = document.getElementById('form');
-    const submitBtn = document.getElementById('submit-btn');
-    const status = document.getElementById('status');
-    const processingState = document.getElementById('processing-state');
-    const errorState = document.getElementById('error-state');
-    const errorMsg = document.getElementById('error-msg');
+    const faceParams  = document.getElementById('face-params');
+    const bgParams    = document.getElementById('bg-params');
+    const form        = document.getElementById('form');
+    const submitBtn   = document.getElementById('submit-btn');
+    const progressPanel   = document.getElementById('progress-panel');
+    const progressSpinner = document.getElementById('progress-spinner');
+    const logPanel    = document.getElementById('log-panel');
+    const errorState  = document.getElementById('error-state');
+    const errorMsg    = document.getElementById('error-msg');
     const bgColorPicker = document.getElementById('bg-color-picker');
-    const bgColorText = document.getElementById('bg-color-text');
+    const bgColorText   = document.getElementById('bg-color-text');
     const bgColorHidden = document.getElementById('bg-color');
 
     let selectedFiles = [];
@@ -149,10 +159,8 @@
     // Acción → mostrar/ocultar params
     function updateParams() {
       const action = actionSelect.value;
-      const showFace = ['face-crop', 'pipeline'].includes(action);
-      const showBg = ['bg-change', 'pipeline'].includes(action);
-      faceParams.classList.toggle('hidden', !showFace);
-      bgParams.classList.toggle('hidden', !showBg);
+      faceParams.classList.toggle('hidden', !['face-crop', 'pipeline'].includes(action));
+      bgParams.classList.toggle('hidden',   !['bg-change', 'pipeline'].includes(action));
     }
     actionSelect.addEventListener('change', updateParams);
     updateParams();
@@ -170,66 +178,111 @@
       }
     });
 
-    // Submit
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-
-      if (!selectedFiles.length) {
-        showError('Selecciona al menos una foto.');
-        return;
-      }
-
-      const formData = new FormData();
-      selectedFiles.forEach(f => formData.append('files', f));
-      formData.append('action', actionSelect.value);
-      formData.append('bg_color', bgColorHidden.value);
-      formData.append('size', document.getElementById('size').value);
-      formData.append('padding', document.getElementById('padding').value);
-      formData.append('fallback', document.getElementById('fallback').value);
-
-      setLoading(true);
-      hideError();
-
-      try {
-        const res = await fetch('/process', { method: 'POST', body: formData });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ detail: 'Error desconocido.' }));
-          showError(err.detail || 'Error al procesar las fotos.');
-          return;
-        }
-
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'resultado.zip';
-        a.click();
-        URL.revokeObjectURL(url);
-
-      } catch (err) {
-        showError('Error de red: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    function setLoading(on) {
-      submitBtn.disabled = on;
-      submitBtn.textContent = on ? 'Procesando...' : 'Procesar fotografías';
-      status.classList.toggle('hidden', !on);
-      processingState.classList.toggle('hidden', !on);
+    // Log helpers
+    function appendLog(msg) {
+      const isOk  = msg.startsWith('STEP_OK:');
+      const label = isOk ? msg.slice(8) : msg;
+      const line  = document.createElement('div');
+      line.className = 'flex items-start gap-2 ' + (isOk ? 'text-green-700' : 'text-gray-600');
+      line.innerHTML = isOk
+        ? `<span class="mt-0.5 shrink-0">✓</span><span>${label}</span>`
+        : `<span class="mt-0.5 shrink-0 text-blue-500">›</span><span>${label}</span>`;
+      logPanel.appendChild(line);
+      logPanel.scrollTop = logPanel.scrollHeight;
     }
 
     function showError(msg) {
       errorMsg.textContent = msg;
       errorState.classList.remove('hidden');
-      status.classList.remove('hidden');
+      progressSpinner.classList.add('hidden');
     }
 
-    function hideError() {
+    function resetUI() {
+      logPanel.innerHTML = '';
       errorState.classList.add('hidden');
+      progressPanel.classList.add('hidden');
+      progressSpinner.classList.add('hidden');
     }
+
+    // Submit
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+
+      if (!selectedFiles.length) {
+        resetUI();
+        progressPanel.classList.remove('hidden');
+        showError('Selecciona al menos una foto.');
+        return;
+      }
+
+      resetUI();
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Procesando...';
+      progressPanel.classList.remove('hidden');
+      progressSpinner.classList.remove('hidden');
+
+      const formData = new FormData();
+      selectedFiles.forEach(f => formData.append('files', f));
+      formData.append('action',   actionSelect.value);
+      formData.append('bg_color', bgColorHidden.value);
+      formData.append('size',     document.getElementById('size').value);
+      formData.append('padding',  document.getElementById('padding').value);
+      formData.append('fallback', document.getElementById('fallback').value);
+
+      let jobId;
+      try {
+        const res = await fetch('/process', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: 'Error desconocido.' }));
+          showError(err.detail || 'Error al iniciar el proceso.');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Procesar fotografías';
+          return;
+        }
+        const data = await res.json();
+        jobId = data.job_id;
+      } catch (err) {
+        showError('Error de red: ' + err.message);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Procesar fotografías';
+        return;
+      }
+
+      // Escucha el stream SSE
+      const source = new EventSource(`/stream/${jobId}`);
+
+      source.onmessage = async (e) => {
+        const msg = e.data;
+
+        if (msg === 'DONE') {
+          source.close();
+          appendLog('STEP_OK:Proceso completado. Descargando...');
+          progressSpinner.classList.add('hidden');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Procesar fotografías';
+          window.location.href = `/download/${jobId}`;
+          return;
+        }
+
+        if (msg.startsWith('ERROR:')) {
+          source.close();
+          showError(msg.slice(6));
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Procesar fotografías';
+          return;
+        }
+
+        appendLog(msg);
+      };
+
+      source.onerror = () => {
+        source.close();
+        showError('Se perdió la conexión con el servidor.');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Procesar fotografías';
+        progressSpinner.classList.add('hidden');
+      };
+    });
   </script>
 </body>
 </html>
