@@ -11,7 +11,7 @@
   <div class="w-full max-w-xl bg-white rounded-2xl shadow-md p-8 space-y-6">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">Profile Photo Processor</h1>
-      <p class="text-sm text-gray-500 mt-1">Sube tus fotos, elegí la acción y descargá el resultado.</p>
+      <p class="text-sm text-gray-500 mt-1">Sube tus fotos, elige la acción y descarga el resultado.</p>
     </div>
 
     <form id="form" class="space-y-5">
@@ -26,7 +26,7 @@
             <path stroke-linecap="round" stroke-linejoin="round"
               d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
           </svg>
-          <p id="drop-label" class="text-sm text-gray-500">Arrastrá archivos o <span class="text-blue-600 underline">hacé click</span></p>
+          <p id="drop-label" class="text-sm text-gray-500">Arrastra archivos o <span class="text-blue-600 underline">haz clic aquí</span></p>
           <p class="text-xs text-gray-400 mt-1">HEIC, HEIF, JPG, PNG</p>
         </div>
         <div id="file-list" class="mt-2 space-y-1 text-sm text-gray-600 hidden"></div>
@@ -84,7 +84,7 @@
       <!-- Submit -->
       <button id="submit-btn" type="submit"
         class="w-full text-white bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-3 text-center transition disabled:opacity-50 disabled:cursor-not-allowed">
-        Procesar fotos
+        Procesar fotografías
       </button>
 
       <!-- Estado -->
@@ -94,7 +94,7 @@
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
           </svg>
-          <span>Procesando... esto puede tardar unos minutos según la cantidad de fotos.</span>
+          <span>Procesando... esto puede tardar unos minutos según la cantidad de fotografías.</span>
         </div>
         <div id="error-state" class="hidden p-4 text-sm text-red-800 rounded-lg bg-red-50">
           <span id="error-msg"></span>
@@ -175,7 +175,7 @@
       e.preventDefault();
 
       if (!selectedFiles.length) {
-        showError('Seleccioná al menos una foto.');
+        showError('Selecciona al menos una foto.');
         return;
       }
 
@@ -195,7 +195,7 @@
 
         if (!res.ok) {
           const err = await res.json().catch(() => ({ detail: 'Error desconocido.' }));
-          showError(err.detail || 'Error al procesar.');
+          showError(err.detail || 'Error al procesar las fotos.');
           return;
         }
 
@@ -216,7 +216,7 @@
 
     function setLoading(on) {
       submitBtn.disabled = on;
-      submitBtn.textContent = on ? 'Procesando...' : 'Procesar fotos';
+      submitBtn.textContent = on ? 'Procesando...' : 'Procesar fotografías';
       status.classList.toggle('hidden', !on);
       processingState.classList.toggle('hidden', !on);
     }

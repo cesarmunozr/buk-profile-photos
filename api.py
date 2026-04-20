@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
 import shutil
+import traceback
 import uuid
 import zipfile
 from pathlib import Path
 from typing import List
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -115,6 +120,7 @@ async def process(
         shutil.rmtree(job_dir, ignore_errors=True)
         raise
     except Exception as exc:
+        logger.error("Error en /process:\n%s", traceback.format_exc())
         shutil.rmtree(job_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
