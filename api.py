@@ -63,34 +63,34 @@ def _run_job(
     try:
         if action == "convert":
             log("Convirtiendo imágenes a PNG...")
-            _convert(input_dir, output_dir)
+            _convert(input_dir, output_dir, on_file=log)
             log("STEP_OK:Conversión completada")
 
         elif action == "face-crop":
             converted = job_dir / "converted"
             log("Convirtiendo imágenes a PNG...")
-            _convert(input_dir, converted)
+            _convert(input_dir, converted, on_file=log)
             log("STEP_OK:Conversión completada")
             log("Detectando y recortando caras...")
-            _face_crop(converted, output_dir, args)
+            _face_crop(converted, output_dir, args, on_file=log)
             log("STEP_OK:Recorte de caras completado")
 
         elif action == "bg-change":
             converted = job_dir / "converted"
             log("Convirtiendo imágenes a PNG...")
-            _convert(input_dir, converted)
+            _convert(input_dir, converted, on_file=log)
             log("STEP_OK:Conversión completada")
             log("Eliminando fondo y aplicando color sólido...")
-            _bg_change(converted, output_dir, bg_color)
+            _bg_change(converted, output_dir, bg_color, on_file=log)
             log("STEP_OK:Cambio de fondo completado")
 
         elif action == "circle-crop":
             converted = job_dir / "converted"
             log("Convirtiendo imágenes a PNG...")
-            _convert(input_dir, converted)
+            _convert(input_dir, converted, on_file=log)
             log("STEP_OK:Conversión completada")
             log("Aplicando recorte circular...")
-            _circle_crop(converted, output_dir)
+            _circle_crop(converted, output_dir, on_file=log)
             log("STEP_OK:Recorte circular completado")
 
         elif action == "pipeline":
@@ -98,26 +98,34 @@ def _run_job(
             cropped = job_dir / "_cropped"
             bg = job_dir / "_bg"
             log("Paso 1/4 — Convirtiendo imágenes a PNG...")
-            _convert(input_dir, converted)
+            _convert(input_dir, converted, on_file=log)
             log("STEP_OK:Conversión completada")
             log("Paso 2/4 — Detectando y recortando caras...")
-            _face_crop(converted, cropped, args)
+            _face_crop(converted, cropped, args, on_file=log)
             log("STEP_OK:Recorte de caras completado")
             log("Paso 3/4 — Eliminando fondo...")
-            _bg_change(cropped, bg, bg_color)
+            _bg_change(cropped, bg, bg_color, on_file=log)
             log("STEP_OK:Cambio de fondo completado")
             log("Paso 4/4 — Aplicando recorte circular...")
-            _circle_crop(bg, output_dir)
+            _circle_crop(bg, output_dir, on_file=log)
             log("STEP_OK:Recorte circular completado")
 
         png_files = list(output_dir.glob("*.png"))
         if not png_files:
             raise RuntimeError("No se generaron imágenes de salida.")
 
-        log("Comprimiendo resultados...")
-        zip_path = job_dir / "result.zip"
-        _zip_dir(output_dir, zip_path)
-        jobs[job_id]["zip_path"] = str(zip_path)
+        if len(png_files) == 1:
+            jobs[job_id]["result_path"] = str(png_files[0])
+            jobs[job_id]["result_name"] = png_files[0].name
+            jobs[job_id]["result_mime"] = "image/png"
+        else:
+            log("Comprimiendo resultados...")
+            zip_path = job_dir / "result.zip"
+            _zip_dir(output_dir, zip_path)
+            jobs[job_id]["result_path"] = str(zip_path)
+            jobs[job_id]["result_name"] = "resultado.zip"
+            jobs[job_id]["result_mime"] = "application/zip"
+
         log("DONE")
 
     except Exception as exc:
@@ -194,18 +202,18 @@ async def download(background_tasks: BackgroundTasks, job_id: str):
         raise HTTPException(status_code=404, detail="Job no encontrado.")
     if job.get("error"):
         raise HTTPException(status_code=500, detail=job["error"])
-    zip_path = job.get("zip_path")
-    if not zip_path or not Path(zip_path).exists():
+    result_path = job.get("result_path")
+    if not result_path or not Path(result_path).exists():
         raise HTTPException(status_code=404, detail="Archivo no disponible.")
 
-    job_dir = Path(zip_path).parent
+    job_dir = Path(result_path).parent
     background_tasks.add_task(shutil.rmtree, str(job_dir), True)
     background_tasks.add_task(jobs.pop, job_id, None)
 
     return FileResponse(
-        path=zip_path,
-        media_type="application/zip",
-        filename="resultado.zip",
+        path=result_path,
+        media_type=job["result_mime"],
+        filename=job["result_name"],
         background=background_tasks,
     )
 

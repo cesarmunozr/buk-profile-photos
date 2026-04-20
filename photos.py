@@ -62,7 +62,7 @@ def hex_to_rgb(hex_color: str) -> tuple:
 
 # ── Convert ────────────────────────────────────────────────────────────────────
 
-def _convert(input_dir: Path, output_dir: Path) -> None:
+def _convert(input_dir: Path, output_dir: Path, on_file=None) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     files = [f for f in input_dir.iterdir() if f.suffix.lower() in SUPPORTED_CONVERT]
 
@@ -81,9 +81,11 @@ def _convert(input_dir: Path, output_dir: Path) -> None:
                 image = Image.open(src)
             image.save(dst, format="PNG")
             print(f"  OK   {src.name} → {dst.name}")
+            if on_file: on_file(f"STEP_OK:{src.name} convertida")
             ok += 1
         except Exception as e:
             print(f"  ERR  {src.name}: {e}", file=sys.stderr)
+            if on_file: on_file(f"ERR:{src.name}: {e}")
             failed += 1
 
     print(f"\n  Convertidos: {ok} | Errores: {failed}")
@@ -142,7 +144,7 @@ def _center_crop_fallback(img: Image.Image, fill: tuple) -> Image.Image:
     return _square_crop(img, w / 2, h / 2, min(w, h), fill=fill)
 
 
-def _face_crop(input_dir: Path, output_dir: Path, args: argparse.Namespace) -> None:
+def _face_crop(input_dir: Path, output_dir: Path, args: argparse.Namespace, on_file=None) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     files = sorted(input_dir.glob("*.png"))
@@ -157,7 +159,7 @@ def _face_crop(input_dir: Path, output_dir: Path, args: argparse.Namespace) -> N
     ok = no_face = failed = 0
     fill = (0, 0, 0)
 
-    for src in files:
+    for i, src in enumerate(files, 1):
         dst = output_dir / src.name
         try:
             img = Image.open(src).convert("RGB")
@@ -167,10 +169,12 @@ def _face_crop(input_dir: Path, output_dir: Path, args: argparse.Namespace) -> N
             if boxes is None or len(boxes) == 0:
                 if args.fallback == "skip":
                     print(f"  SKIP  {src.name}  (sin cara)")
+                    if on_file: on_file(f"[{i}/{len(files)}] {src.name} — sin cara, omitida")
                     no_face += 1
                     continue
                 cropped = _center_crop_fallback(img, fill=fill)
                 print(f"  WARN  {src.name}  (sin cara → crop central)")
+                if on_file: on_file(f"[{i}/{len(files)}] {src.name} — sin cara detectada, recorte central")
                 no_face += 1
             else:
                 best_idx = int(boxes.conf.argmax())
@@ -182,6 +186,7 @@ def _face_crop(input_dir: Path, output_dir: Path, args: argparse.Namespace) -> N
                 cropped = _square_crop(img, cx, cy, side, fill=fill)
                 conf = float(boxes.conf[best_idx])
                 print(f"  OK    {src.name}  (conf={conf:.2f}, bbox={int(face_w)}x{int(face_h)})")
+                if on_file: on_file(f"STEP_OK:[{i}/{len(files)}] {src.name} — cara detectada (conf={conf:.2f})")
                 ok += 1
 
             cropped = cropped.resize((args.size, args.size), Image.LANCZOS)
@@ -189,6 +194,7 @@ def _face_crop(input_dir: Path, output_dir: Path, args: argparse.Namespace) -> N
 
         except Exception as e:
             print(f"  ERR   {src.name}: {e}", file=sys.stderr)
+            if on_file: on_file(f"ERR:[{i}/{len(files)}] {src.name}: {e}")
             failed += 1
 
     print(f"\n  Listo: {ok} con cara | {no_face} sin cara | {failed} errores")
@@ -217,7 +223,7 @@ def _apply_circle_mask(img: Image.Image) -> Image.Image:
     return result
 
 
-def _bg_change(input_dir: Path, output_dir: Path, bg_color_hex: str) -> None:
+def _bg_change(input_dir: Path, output_dir: Path, bg_color_hex: str, on_file=None) -> None:
     from rembg import new_session, remove
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -234,7 +240,7 @@ def _bg_change(input_dir: Path, output_dir: Path, bg_color_hex: str) -> None:
     print(f"\n  Procesando {len(files)} imágenes → {output_dir}\n")
 
     ok = failed = 0
-    for src in files:
+    for i, src in enumerate(files, 1):
         dst = output_dir / src.name
         try:
             img = Image.open(src).convert("RGB")
@@ -243,15 +249,17 @@ def _bg_change(input_dir: Path, output_dir: Path, bg_color_hex: str) -> None:
             background.paste(rgba, mask=rgba.split()[3])
             background.save(dst, format="PNG", optimize=True)
             print(f"  OK   {src.name}")
+            if on_file: on_file(f"STEP_OK:[{i}/{len(files)}] {src.name} — fondo eliminado")
             ok += 1
         except Exception as e:
             print(f"  ERR  {src.name}: {e}", file=sys.stderr)
+            if on_file: on_file(f"ERR:[{i}/{len(files)}] {src.name}: {e}")
             failed += 1
 
     print(f"\n  Listo: {ok} procesadas | {failed} errores")
 
 
-def _circle_crop(input_dir: Path, output_dir: Path) -> None:
+def _circle_crop(input_dir: Path, output_dir: Path, on_file=None) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     files = sorted(input_dir.glob("*.png"))
@@ -262,16 +270,18 @@ def _circle_crop(input_dir: Path, output_dir: Path) -> None:
     print(f"  Procesando {len(files)} imágenes → {output_dir}\n")
 
     ok = failed = 0
-    for src in files:
+    for i, src in enumerate(files, 1):
         dst = output_dir / src.name
         try:
             img = Image.open(src).convert("RGB")
             result = _apply_circle_mask(img)
             result.save(dst, format="PNG", optimize=True)
             print(f"  OK   {src.name}")
+            if on_file: on_file(f"STEP_OK:[{i}/{len(files)}] {src.name} — recorte circular aplicado")
             ok += 1
         except Exception as e:
             print(f"  ERR  {src.name}: {e}", file=sys.stderr)
+            if on_file: on_file(f"ERR:[{i}/{len(files)}] {src.name}: {e}")
             failed += 1
 
     print(f"\n  Listo: {ok} procesadas | {failed} errores")
